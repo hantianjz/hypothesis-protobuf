@@ -1,0 +1,54 @@
+syntax = "proto3";
+package im_nested;
+
+message InstantMessage {
+  enum NestedEnum1 {
+    EN_ZERO = 0;
+    EN_ONE = 1;
+    EN_TWO = 2;
+    EN_THREE = 3;
+  }
+  uint64 timestamp = 1;
+  NestedEnum1 nested1 = 2;
+  fixed32 sender_ip = 3;
+  User sender = 4;
+  User recipient = 5;
+  string message = 6;
+  repeated bytes image_attachments = 7;
+  MetaData metadata = 8;
+}
+
+message User {
+  uint64 id = 1;
+  string screen_name = 2;
+}
+
+message MetaData {
+  enum NestedEnum1 {
+    EN_ZERO = 0;
+    EN_ONE = 1;
+    EN_TWO = 2;
+    EN_THREE = 3;
+  }
+  message InnerData {
+    enum NestedEnum2 {
+      EN_ZERO = 0;
+      EN_ONE = 1;
+      EN_TWO = 2;
+      EN_THREE = 3;
+    }
+    NestedEnum2 nested2 = 1;
+    float latency = 2;
+    NestedEnum1 nested1 = 3;
+  }
+  NestedEnum1 nested1 = 1;
+  float latency = 2;
+  InnerData inner_data = 3;
+}
+
+enum Client {
+  CLIENT_UNKNOWN = 0;
+  CLIENT_NATIVE_APP = 1;
+  CLIENT_WEB_APP = 2;
+  CLIENT_API = 3;
+}

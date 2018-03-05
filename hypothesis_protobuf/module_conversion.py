@@ -6,6 +6,7 @@ from functools import partial
 
 from hypothesis import strategies as st
 
+from google.protobuf.internal import enum_type_wrapper
 from google.protobuf.internal.well_known_types import FieldDescriptor
 
 
@@ -34,10 +35,12 @@ SCALAR_MAPPINGS = {
 }
 
 LABEL_MAPPINGS = {
-    FieldDescriptor.LABEL_OPTIONAL: partial(st.one_of, st.none()),  # N.B. NoneType is not a valid proto value, but is handled in buildable
+    FieldDescriptor.LABEL_OPTIONAL: st.one_of,
     FieldDescriptor.LABEL_REPEATED: st.lists,
     FieldDescriptor.LABEL_REQUIRED: lambda x: x
 }
+
+MAX_LOAD_DEPTH = 5
 
 
 def overridable(f):
@@ -144,8 +147,6 @@ def buildable(message_obj):
 
 def message_to_strategy(message_obj, env, overrides=None):
     """Generate strategy from message."""
-    # TODO: nested enums are not supported
-    # TODO: nested messages are not supported
 
     return st.builds(
         buildable(message_obj),
@@ -156,33 +157,50 @@ def message_to_strategy(message_obj, env, overrides=None):
     )
 
 
-def load_module_into_env(module_, env, overrides=None):
+def load_module_into_env(parent_obj, env, overrides=None, depth=1):
     """Populate env with all messages and enums from the module."""
-    for enum in module_.DESCRIPTOR.enum_types_by_name.values():
-        enum_obj = getattr(module_, enum.name)
+    if depth > MAX_LOAD_DEPTH:
+        raise Exception("Nesting below {} levels is not supported".format(MAX_LOAD_DEPTH))
+
+    if hasattr(parent_obj.DESCRIPTOR, 'enum_types'):
+        enum_types = parent_obj.DESCRIPTOR.enum_types
+    else:
+        enum_types = parent_obj.DESCRIPTOR.enum_types_by_name.values()
+
+    for enum_type in enum_types:
+        enum_obj = enum_type_wrapper.EnumTypeWrapper(enum_type)
         env[enum_obj] = enum_to_strategy(enum_obj, overrides=overrides)
+
+    # get all types at the current depth
+    if hasattr(parent_obj.DESCRIPTOR, 'nested_types'):
+        nested_types = parent_obj.DESCRIPTOR.nested_types
+    else:  # parent_obj is a module
+        nested_types = parent_obj.DESCRIPTOR.message_types_by_name.values()
 
     # Some message types are dependant on other messages being loaded
     # Unfortunately, how to determine load order is not clear.
     # We'll loop through all the messages, skipping over errors until we've either:
     # A) loaded all the messages
     # B) exhausted all the possible orderings
-    message_types = module_.DESCRIPTOR.message_types_by_name.values()
-    total_messages = len(message_types)
+    total_messages = len(nested_types)
     loaded = set()
+    is_loaded = False
     for __ in range(total_messages):
-        for message in message_types:
+        for message in nested_types:
             if message in loaded:
                 continue
             try:
-                message_obj = getattr(module_, message.name)
+                message_obj = getattr(parent_obj, message.name)
+                load_module_into_env(message_obj, env, overrides=overrides, depth=depth+1)
                 env[message_obj] = message_to_strategy(message_obj, env, overrides=overrides)
                 loaded.add(message)
             except LookupError:
                 continue
 
-        if all(message in loaded for message in message_types):
+        if all(message in loaded for message in nested_types):
+            is_loaded = True
             break
+    return is_loaded
 
 
 def modules_to_strategies(*modules, **overrides):
@@ -195,14 +213,11 @@ def modules_to_strategies(*modules, **overrides):
     generated strategy for the field they are mapped to.
     """
     env = {}
-    loaded_packages = set()
-    modules_to_load = sorted(modules, key=lambda m: len(m.DESCRIPTOR.dependencies))
-    while len(loaded_packages) != len(modules_to_load):
-        for module_ in modules_to_load:
-            if module_.DESCRIPTOR.package in loaded_packages:
+    module_loaded = {}
+    total_modules = len(modules)
+    for __ in range(total_modules):
+        for module in modules:
+            if module_loaded.get(module):
                 continue
-            if not all(dependency.package in loaded_packages for dependency in module_.DESCRIPTOR.dependencies):
-                continue
-            load_module_into_env(module_, env, overrides)
-            loaded_packages.add(module_.DESCRIPTOR.package)
+            module_loaded[module] = load_module_into_env(module, env, overrides)
     return env

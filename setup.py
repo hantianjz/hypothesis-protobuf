@@ -4,7 +4,7 @@ setup(
     name='hypothesis-pb',
     packages=['hypothesis_protobuf'],
     platforms='any',
-    version='1.2.0',
+    version='1.2.1',
     description='Hypothesis extension to allow generating protobuf messages matching a schema.',
     long_description=open('README.md').read(),
     author='H. Chase Stevens',
